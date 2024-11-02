@@ -25,6 +25,8 @@ bool gardenPumpState = false;
 bool greenHousePumpState = false;
 bool gardenPumpManualOverride = false;
 bool greenHousePumpManualOverride = false;
+bool gardenScheduleEnabled = true;       // Variable to enable/disable schedule
+bool greenHouseScheduleEnabled = true;   // Variable to enable/disable schedule
 
 // Define pump activation times
 struct PumpSchedule {
@@ -36,13 +38,13 @@ struct PumpSchedule {
 
 PumpSchedule gardenSchedule[] = {
     {6, 10, 6, 40},
-    {13, 59, 14, 02},
+    {17, 05, 17, 20},
     {17, 15, 17, 40}
 };
 
 PumpSchedule greenHouseSchedule[] = {
     {6, 0, 6, 10},
-    {10, 20, 10, 30},
+    {17, 11, 17, 22},
     {14, 06, 14, 9},
     {18, 5, 18, 15},
 };
@@ -52,7 +54,7 @@ const char* authUsername = "wagner"; // Set your username
 const char* authPassword = "pumps48"; // Set your password
 
 // Function declarations
-void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool& pumpState, bool& pumpManualOverride, int currentHour, int currentMinute);
+void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool& pumpState, bool& pumpManualOverride, bool scheduleEnabled, int currentHour, int currentMinute);
 void handleRoot();
 void handlePumpControl();
 void setupServer();
@@ -104,14 +106,14 @@ void loop() {
     Serial.print(currentHour);
     Serial.print(":");
     Serial.println(currentMinute);
-    controlPump(gardenSchedule, sizeof(gardenSchedule) / sizeof(gardenSchedule[0]), gardenPump, gardenPumpState, gardenPumpManualOverride, currentHour, currentMinute);
+    controlPump(gardenSchedule, sizeof(gardenSchedule) / sizeof(gardenSchedule[0]), gardenPump, gardenPumpState, gardenPumpManualOverride, gardenScheduleEnabled, currentHour, currentMinute);
 
     // Check greenhouse pump schedule
     Serial.print("Checking greenhouse pump at ");
     Serial.print(currentHour);
     Serial.print(":");
     Serial.println(currentMinute);
-    controlPump(greenHouseSchedule, sizeof(greenHouseSchedule) / sizeof(greenHouseSchedule[0]), greenHousePump, greenHousePumpState, greenHousePumpManualOverride, currentHour, currentMinute);
+    controlPump(greenHouseSchedule, sizeof(greenHouseSchedule) / sizeof(greenHouseSchedule[0]), greenHousePump, greenHousePumpState, greenHousePumpManualOverride, greenHouseScheduleEnabled, currentHour, currentMinute);
 
     // Handle client requests
     server.handleClient();
@@ -120,7 +122,7 @@ void loop() {
     delay(1000);
 }
 
-void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool& pumpState, bool& pumpManualOverride, int currentHour, int currentMinute) {
+void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool& pumpState, bool& pumpManualOverride, bool scheduleEnabled, int currentHour, int currentMinute) {
     bool pumpOn = false;
 
     // If manual override is active, control the pump based on the manual state
@@ -132,12 +134,14 @@ void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool&
         return;
     }
 
-    // Proceed with schedule check if no manual override is active
-    for (int i = 0; i < scheduleLength; i++) {
-        if ((currentHour > schedule[i].startHour || (currentHour == schedule[i].startHour && currentMinute >= schedule[i].startMinute)) &&
-            (currentHour < schedule[i].endHour || (currentHour == schedule[i].endHour && currentMinute <= schedule[i].endMinute))) {
-            pumpOn = true;
-            break;
+    // Only proceed if scheduling is enabled
+    if (scheduleEnabled) {
+        for (int i = 0; i < scheduleLength; i++) {
+            if ((currentHour > schedule[i].startHour || (currentHour == schedule[i].startHour && currentMinute >= schedule[i].startMinute)) &&
+                (currentHour < schedule[i].endHour || (currentHour == schedule[i].endHour && currentMinute <= schedule[i].endMinute))) {
+                pumpOn = true;
+                break;
+            }
         }
     }
 
@@ -168,15 +172,48 @@ void handleRoot() {
         return;
     }
 
-    String html = "<html><body><h1>Pump Control</h1>";
-    html += "<h2>Manual Control</h2>";
+    // HTML content with embedded CSS
+    String html = "<html><head><style>";
+    
+    // Add CSS for styling
+    html += "body { font-family: Arial, sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; color: #333; }";
+    html += "h1 { color: #333366; }";
+    html += "h2 { color: #5a5a8f; }";
+    html += "p { font-size: 16px; margin: 10px 0; }";
+    html += "form { margin-top: 20px; }";
+    html += "input[type=submit] { padding: 10px 20px; margin: 5px; font-size: 16px; color: #fff; background-color: #4CAF50; border: none; border-radius: 5px; cursor: pointer; }";
+    html += "input[type=submit]:hover { background-color: #45a049; }";
+    html += "</style></head><body><h1>Pump Control</h1>";
+    
+    // Display the current state of each pump
+    html += "<h2>Current States</h2>";
+    html += "<p>Bomba da Horta esta " + String(gardenPumpState ? "<Strong>Ligada</strong>" : "<Strong>Desligada</strong>") + "</p>";
+    html += "<p>Bomba da Estufa esta " + String(greenHousePumpState ? "<Strong>Ligada</strong>" : "<Strong>Desligada</strong>") + "</p>";
+    
+    // Display the current schedule status for each pump
+    html += "<h2>Schedule Status</h2>";
+    html += "<p>Programacao da bomba da horta esta " + String(gardenScheduleEnabled ? "<Strong>Ativa</Strong>" : "<Strong>Inativa</Strong>") + "</p>";
+    html += "<p>Programacao da bomba da estufa esta " + String(greenHouseScheduleEnabled ? "<Strong>Ativa</Strong>" : "<Strong>Inativa</Strong>") + "</p>";
+    
+    // Manual control form
+    html += "<h2>Controle Manual</h2>";
     html += "<form action=\"/control\" method=\"POST\">";
-    html += "<input type=\"submit\" name=\"garden\" value=\"Toggle Garden Pump\">";
-    html += "<input type=\"submit\" name=\"greenhouse\" value=\"Toggle Greenhouse Pump\">";
+    html += "<input type=\"submit\" name=\"garden\" value=\"Alternar Bomba da Horta\">";
+    html += "<input type=\"submit\" name=\"greenhouse\" value=\"Alternar Bomba da Estufa\"><br><br>";
+    
+    // Schedule control form
+    html += "<h2>Irrigacao Programada</h2>";
+    html += "<input type=\"submit\" name=\"enableGardenSchedule\" value=\"" + String(gardenScheduleEnabled ? "Desabilitar" : "Abilitar") + " Programacao da Horta\">";
+    html += "<input type=\"submit\" name=\"enableGreenhouseSchedule\" value=\"" + String(greenHouseScheduleEnabled ? "Desabilitar" : "Abilitar") + " Programacao da Estufa\">";
+    
     html += "</form>";
     html += "</body></html>";
+    
+    // Send the HTML content to the client
     server.send(200, "text/html", html);
 }
+
+
 
 void handlePumpControl() {
     if (!isAuthenticated()) {
@@ -193,11 +230,25 @@ void handlePumpControl() {
         greenHousePumpState = !greenHousePumpState; // Toggle the state
         greenHousePumpManualOverride = true;        // Enable manual override
     }
+    if (server.hasArg("enableGardenSchedule")) {
+        gardenScheduleEnabled = !gardenScheduleEnabled; // Toggle schedule enable
+        if (gardenScheduleEnabled) {
+            gardenPumpManualOverride = false; // Reset manual override when enabling schedule
+        }
+    }
+    if (server.hasArg("enableGreenhouseSchedule")) {
+        greenHouseScheduleEnabled = !greenHouseScheduleEnabled; // Toggle schedule enable
+        if (greenHouseScheduleEnabled) {
+            greenHousePumpManualOverride = false; // Reset manual override when enabling schedule
+        }
+    }
 
     // Redirect back to the main page
     server.sendHeader("Location", "/");
     server.send(302, "text/plain", "Redirecting...");
 }
+
+
 
 bool isAuthenticated() {
     if (!server.hasHeader("Authorization")) {
@@ -212,19 +263,16 @@ bool isAuthenticated() {
         size_t decodedLength = 0;
         uint8_t decoded[64];  // Buffer for decoded data, adjust size if necessary
         
-        int ret = mbedtls_base64_decode(decoded, sizeof(decoded), &decodedLength, 
-                                        (const unsigned char*)encoded.c_str(), encoded.length());
+        int ret = mbedtls_base64_decode(decoded, sizeof(decoded), &decodedLength, (const unsigned char*)encoded.c_str(), encoded.length());
+        if (ret != 0) return false;
         
-        if (ret != 0) {
-            Serial.println("Base64 decoding failed");
-            return false;
+        String decodedString = String((char*)decoded, decodedLength);
+        
+        // Check username and password
+        if (decodedString == String(authUsername) + ":" + String(authPassword)) {
+            return true;
         }
-
-        String decodedStr = String((char*)decoded).substring(0, decodedLength);
-        
-        // Check if the decoded string matches "username:password"
-        return decodedStr == String(authUsername) + ":" + String(authPassword);
     }
-
+    
     return false;
 }
