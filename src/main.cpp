@@ -49,6 +49,13 @@ PumpSchedule greenHouseSchedule[] = {
     {18, 5, 18, 15},
 };
 
+// Add helper function to format time as "HH:MM"
+String formatTime(int hour, int minute) {
+    String h = hour < 10 ? "0" + String(hour) : String(hour);
+    String m = minute < 10 ? "0" + String(minute) : String(minute);
+    return h + ":" + m;
+}
+
 // Username and password for authentication
 const char* authUsername = "wagner"; // Set your username
 const char* authPassword = "pumps48"; // Set your password
@@ -57,6 +64,9 @@ const char* authPassword = "pumps48"; // Set your password
 void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool& pumpState, bool& pumpManualOverride, bool scheduleEnabled, int currentHour, int currentMinute);
 void handleRoot();
 void handlePumpControl();
+void handleSetGardenSchedule();
+void handleSetGreenhouseSchedule();
+void handleResetOverride();
 void setupServer();
 bool isAuthenticated();
 
@@ -138,18 +148,16 @@ void loop() {
 }
 
 void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool& pumpState, bool& pumpManualOverride, bool scheduleEnabled, int currentHour, int currentMinute) {
-    bool pumpOn = false;
-
-    // If manual override is active, control the pump based on the manual state
     if (pumpManualOverride) {
-        digitalWrite(pumpPin, pumpState ? LOW : HIGH); // Use the manual state directly
+        digitalWrite(pumpPin, pumpState ? LOW : HIGH);
         Serial.print("Pump on pin ");
         Serial.print(pumpPin);
         Serial.println(pumpState ? " is ON (Manual Override)." : " is OFF (Manual Override).");
-        return;
+        return;  // Exit early if in manual mode
     }
 
     // Only proceed if scheduling is enabled
+    bool pumpOn = false;
     if (scheduleEnabled) {
         for (int i = 0; i < scheduleLength; i++) {
             if ((currentHour > schedule[i].startHour || (currentHour == schedule[i].startHour && currentMinute >= schedule[i].startMinute)) &&
@@ -160,22 +168,22 @@ void controlPump(PumpSchedule schedule[], int scheduleLength, int pumpPin, bool&
         }
     }
 
-    if (pumpOn) {
-        digitalWrite(pumpPin, LOW); // Turn pump ON
-        Serial.print("Pump on pin ");
-        Serial.print(pumpPin);
-        Serial.println(" is ON due to schedule.");
-    } else {
-        digitalWrite(pumpPin, HIGH); // Turn pump OFF
-        Serial.print("Pump on pin ");
-        Serial.print(pumpPin);
-        Serial.println(" is OFF due to schedule.");
-    }
+    // Update the pump state based on the schedule
+    pumpState = pumpOn;
+
+    digitalWrite(pumpPin, pumpOn ? LOW : HIGH);
+    Serial.print("Pump on pin ");
+    Serial.print(pumpPin);
+    Serial.println(pumpOn ? " is ON due to schedule." : " is OFF due to schedule.");
 }
+
 
 void setupServer() {
     server.on("/", handleRoot);
     server.on("/control", handlePumpControl);
+    server.on("/setGardenSchedule", handleSetGardenSchedule);
+    server.on("/setGreenhouseSchedule", handleSetGreenhouseSchedule);
+    server.on("/resetOverride", handleResetOverride);  // <-- New route added
     server.begin();
     Serial.println("HTTP server started");
 }
@@ -199,6 +207,8 @@ void handleRoot() {
     html += "input[type=submit] { padding: 10px 20px; margin: 5px; font-size: 16px; color: #fff; background-color: #4CAF50; border: none; border-radius: 5px; cursor: pointer; }";
     html += "input[type=submit]:hover { background-color: #45a049; }";
     html += "</style></head><body><h1>Pump Control</h1>";
+
+    html += "</style></head><body><h1>Pump Control</h1>";
     
     // Display the current state of each pump
     html += "<h2>Current States</h2>";
@@ -209,7 +219,20 @@ void handleRoot() {
     html += "<h2>Schedule Status</h2>";
     html += "<p>Programacao da bomba da horta esta " + String(gardenScheduleEnabled ? "<Strong>Ativa</Strong>" : "<Strong>Inativa</Strong>") + "</p>";
     html += "<p>Programacao da bomba da estufa esta " + String(greenHouseScheduleEnabled ? "<Strong>Ativa</Strong>" : "<Strong>Inativa</Strong>") + "</p>";
-    
+
+    // Reset override
+    html += "<h2>Reset Override</h2>";
+    html += "<button onclick=\"resetOverride()\">Reset to Schedule</button>";
+
+    html += "<script>";
+    html += "function resetOverride() {";
+    html += "  fetch('/resetOverride', { method: 'POST' })";
+    html += "    .then(response => response.text())";
+    html += "    .then(data => alert(data))";  // Show confirmation message
+    html += "    .catch(error => console.error('Error:', error));";
+    html += "}";
+    html += "</script>";
+
     // Manual control form
     html += "<h2>Controle Manual</h2>";
     html += "<form action=\"/control\" method=\"POST\">";
@@ -224,11 +247,140 @@ void handleRoot() {
     html += "</form>";
     html += "</body></html>";
     
-    // Send the HTML content to the client
+    // Garden Pump Schedule Form
+    html += "<h2>Garden Pump Schedule</h2>";
+    html += "<form action=\"/setGardenSchedule\" method=\"POST\">";
+    for (int i = 0; i < sizeof(gardenSchedule)/sizeof(gardenSchedule[0]); i++) {
+        html += "Schedule " + String(i+1) + ": ";
+        html += "<input type=\"time\" name=\"start" + String(i+1) + "\" value=\"" + formatTime(gardenSchedule[i].startHour, gardenSchedule[i].startMinute) + "\" required> to ";
+        html += "<input type=\"time\" name=\"end" + String(i+1) + "\" value=\"" + formatTime(gardenSchedule[i].endHour, gardenSchedule[i].endMinute) + "\" required><br>";
+    }
+    html += "<input type=\"submit\" value=\"Update Garden Schedule\">";
+    html += "</form>";
+
+    // Greenhouse Pump Schedule Form
+    html += "<h2>Greenhouse Pump Schedule</h2>";
+    html += "<form action=\"/setGreenhouseSchedule\" method=\"POST\">";
+    for (int i = 0; i < sizeof(greenHouseSchedule)/sizeof(greenHouseSchedule[0]); i++) {
+        html += "Schedule " + String(i+1) + ": ";
+        html += "<input type=\"time\" name=\"start" + String(i+1) + "\" value=\"" + formatTime(greenHouseSchedule[i].startHour, greenHouseSchedule[i].startMinute) + "\" required> to ";
+        html += "<input type=\"time\" name=\"end" + String(i+1) + "\" value=\"" + formatTime(greenHouseSchedule[i].endHour, greenHouseSchedule[i].endMinute) + "\" required><br>";
+    }
+    html += "<input type=\"submit\" value=\"Update Greenhouse Schedule\">";
+    html += "</form>";
+
+    html += "</body></html>";
     server.send(200, "text/html", html);
 }
 
+// Add handlers for setting schedules
+void handleSetGardenSchedule() {
+    if (!isAuthenticated()) {
+        server.sendHeader("WWW-Authenticate", "Basic realm=\"Pump Control\"");
+        server.send(401, "text/plain", "Authentication required.");
+        return;
+    }
 
+    int numSchedules = sizeof(gardenSchedule)/sizeof(gardenSchedule[0]);
+    for (int i = 0; i < numSchedules; i++) {
+        String startArg = "start" + String(i+1);
+        String endArg = "end" + String(i+1);
+        
+        if (!server.hasArg(startArg) || !server.hasArg(endArg)) {
+            server.send(400, "text/plain", "Missing parameters.");
+            return;
+        }
+        
+        String startTime = server.arg(startArg);
+        String endTime = server.arg(endArg);
+        
+        int startHour = startTime.substring(0, 2).toInt();
+        int startMinute = startTime.substring(3).toInt();
+        int endHour = endTime.substring(0, 2).toInt();
+        int endMinute = endTime.substring(3).toInt();
+        
+        // Validate times
+        if (startHour < 0 || startHour > 23 || startMinute < 0 || startMinute > 59 ||
+            endHour < 0 || endHour > 23 || endMinute < 0 || endMinute > 59) {
+            server.send(400, "text/plain", "Invalid time values.");
+            return;
+        }
+        
+        if (startHour > endHour || (startHour == endHour && startMinute >= endMinute)) {
+            server.send(400, "text/plain", "Start time must be before end time.");
+            return;
+        }
+        
+        // Update schedule
+        gardenSchedule[i].startHour = startHour;
+        gardenSchedule[i].startMinute = startMinute;
+        gardenSchedule[i].endHour = endHour;
+        gardenSchedule[i].endMinute = endMinute;
+    }
+    
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "Redirecting...");
+}
+
+void handleSetGreenhouseSchedule() {
+    if (!isAuthenticated()) {
+        server.sendHeader("WWW-Authenticate", "Basic realm=\"Pump Control\"");
+        server.send(401, "text/plain", "Authentication required.");
+        return;
+    }
+
+    int numSchedules = sizeof(greenHouseSchedule)/sizeof(greenHouseSchedule[0]);
+    for (int i = 0; i < numSchedules; i++) {
+        String startArg = "start" + String(i+1);
+        String endArg = "end" + String(i+1);
+        
+        if (!server.hasArg(startArg) || !server.hasArg(endArg)) {
+            server.send(400, "text/plain", "Missing parameters.");
+            return;
+        }
+        
+        String startTime = server.arg(startArg);
+        String endTime = server.arg(endArg);
+        
+        int startHour = startTime.substring(0, 2).toInt();
+        int startMinute = startTime.substring(3).toInt();
+        int endHour = endTime.substring(0, 2).toInt();
+        int endMinute = endTime.substring(3).toInt();
+        
+        // Validation (same as garden)
+        if (startHour < 0 || startHour > 23 || startMinute < 0 || startMinute > 59 ||
+            endHour < 0 || endHour > 23 || endMinute < 0 || endMinute > 59) {
+            server.send(400, "text/plain", "Invalid time values.");
+            return;
+        }
+        
+        if (startHour > endHour || (startHour == endHour && startMinute >= endMinute)) {
+            server.send(400, "text/plain", "Start time must be before end time.");
+            return;
+        }
+        
+        greenHouseSchedule[i].startHour = startHour;
+        greenHouseSchedule[i].startMinute = startMinute;
+        greenHouseSchedule[i].endHour = endHour;
+        greenHouseSchedule[i].endMinute = endMinute;
+    }
+    
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "Redirecting...");
+}
+
+void handleResetOverride() {
+    if (!isAuthenticated()) {
+        server.sendHeader("WWW-Authenticate", "Basic realm=\"Pump Control\"");
+        server.send(401, "text/plain", "Authentication required.");
+        return;
+    }
+
+    gardenPumpManualOverride = false;
+    greenHousePumpManualOverride = false;
+
+    server.send(200, "text/plain", "Manual override reset. Schedule control restored.");
+}
 
 void handlePumpControl() {
     if (!isAuthenticated()) {
@@ -240,10 +392,12 @@ void handlePumpControl() {
     if (server.hasArg("garden")) {
         gardenPumpState = !gardenPumpState; // Toggle the state
         gardenPumpManualOverride = true;    // Enable manual override
+        digitalWrite(gardenPump, gardenPumpState ? LOW : HIGH); // Immediately update the pump state
     } 
     if (server.hasArg("greenhouse")) {
         greenHousePumpState = !greenHousePumpState; // Toggle the state
         greenHousePumpManualOverride = true;        // Enable manual override
+        digitalWrite(greenHousePump, greenHousePumpState ? LOW : HIGH); // Immediately update the pump state
     }
     if (server.hasArg("enableGardenSchedule")) {
         gardenScheduleEnabled = !gardenScheduleEnabled; // Toggle schedule enable
