@@ -227,8 +227,13 @@ void handleRoot() {
     html += "<script>";
     html += "function resetOverride() {";
     html += "  fetch('/resetOverride', { method: 'POST' })";
-    html += "    .then(response => response.text())";
-    html += "    .then(data => alert(data))";  // Show confirmation message
+    html += "    .then(response => {";
+    html += "      if (response.ok) {";
+    html += "        window.location.reload();";  // Force the page to reload
+    html += "      } else {";
+    html += "        alert('Failed to reset override.');";
+    html += "      }";
+    html += "    })";
     html += "    .catch(error => console.error('Error:', error));";
     html += "}";
     html += "</script>";
