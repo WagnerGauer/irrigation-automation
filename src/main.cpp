@@ -5,8 +5,8 @@
 #include "mbedtls/base64.h"  // Include mbedtls for base64 decoding
 
 // Define the pins for the pumps
-const int gardenPump = 15;        // Define pin 15 for garden pump
-const int greenHousePump = 18;    // Define pin 18 for greenhouse pump
+const int gardenPump = 27;        // Define pin 15 for garden pump
+const int greenHousePump = 25;    // Define pin 18 for greenhouse pump
 
 // WiFi credentials
 const char* ssid = "CHNET - Wagner";
@@ -38,7 +38,7 @@ struct PumpSchedule {
 
 PumpSchedule gardenSchedule[] = {
     {6, 10, 6, 40},
-    {17, 05, 17, 20},
+    {12, 05, 12, 35},
     {17, 15, 17, 40}
 };
 
@@ -69,6 +69,18 @@ void setup() {
     digitalWrite(gardenPump, HIGH); // Ensure pump is off initially
     digitalWrite(greenHousePump, HIGH);
 
+    //I TRIED TO GET THIS TO WORK AND IT DID NOT, THE INTENT WAS TO HAVE A STATIC IP ADDRESS TO CONNECT TO THE SERVER
+    //     // Configure static IP address
+    // IPAddress staticIP(192, 168, 1, 199);  // Set your desired static IP address
+    // IPAddress gateway(192, 168, 0, 1);    // Set your gateway (usually your router's IP)
+    // IPAddress subnet(255, 255, 255, 0);   // Set your subnet mask
+    // IPAddress dns(8, 8, 8, 8);  // Google DNS THIS DOES NOT WORK AND IT'S NOT A PROBLEM BECAUSE I AM ONLY USING THE LOCAL NETWORK
+
+    // // Apply the static IP configuration
+    // if (!WiFi.config(staticIP, gateway, subnet, dns)) {
+    //     Serial.println("Failed to configure static IP!");
+    // }
+
     // Connect to Wi-Fi
     WiFi.begin(ssid, password);
     int timeout = 30;
@@ -82,6 +94,9 @@ void setup() {
         Serial.println("Connected to WiFi");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
+        Serial.println("DNS IP:");
+        Serial.println(WiFi.dnsIP());
+
     } else {
         Serial.println("Failed to connect to WiFi");
     }
